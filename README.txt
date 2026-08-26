@@ -8,7 +8,7 @@ How to run
 1. Install MySQL and run database.sql.
 2. Add the MySQL Connector JAR file to the Java project classpath.
 3. Open PIMSApplication.java in the src folder.
-4. Change DB_USER and DB_PASSWORD if the local MySQL account is different.
+4. Set the MySQL credentials before starting the program. In PowerShell use `$env:PIMS_DB_USER = "root"` and `$env:PIMS_DB_PASSWORD = "your MySQL password"`.
 5. Compile and run PIMSApplication.
 
 The Admin account can use medicine management, supplier viewing, user viewing and reports.

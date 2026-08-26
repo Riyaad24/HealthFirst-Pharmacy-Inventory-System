@@ -7,8 +7,8 @@ import java.time.LocalDate;
 
 public class PIMSApplication {
     private static final String URL = "jdbc:mysql://localhost:3306/pims";
-    private static final String DB_USER = "root";
-    private static final String DB_PASSWORD = "";
+    private static final String DB_USER = System.getenv().getOrDefault("PIMS_DB_USER", "root");
+    private static final String DB_PASSWORD = System.getenv().getOrDefault("PIMS_DB_PASSWORD", "");
 
     private JFrame frame;
     private Connection connection;
