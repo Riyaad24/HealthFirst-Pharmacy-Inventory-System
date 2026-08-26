@@ -8,7 +8,7 @@ import java.time.LocalDate;
 public class PIMSApplication {
     private static final String URL = "jdbc:mysql://localhost:3306/pims";
     private static final String DB_USER = System.getenv().getOrDefault("PIMS_DB_USER", "root");
-    private static final String DB_PASSWORD = System.getenv().getOrDefault("PIMS_DB_PASSWORD", "");
+    private String dbPassword = System.getenv().getOrDefault("PIMS_DB_PASSWORD", "");
 
     private JFrame frame;
     private Connection connection;
@@ -68,7 +68,15 @@ public class PIMSApplication {
 
     private void connect() throws SQLException {
         if (connection == null || connection.isClosed()) {
-            connection = DriverManager.getConnection(URL, DB_USER, DB_PASSWORD);
+            if (dbPassword.isEmpty()) {
+                JPasswordField passwordField = new JPasswordField();
+                int choice = JOptionPane.showConfirmDialog(frame, passwordField, "Enter MySQL password for " + DB_USER, JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
+                if (choice != JOptionPane.OK_OPTION) {
+                    throw new SQLException("MySQL password was not entered");
+                }
+                dbPassword = new String(passwordField.getPassword());
+            }
+            connection = DriverManager.getConnection(URL, DB_USER, dbPassword);
         }
     }
 
