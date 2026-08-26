@@ -1,7 +1,12 @@
 out/
+build/
+dist/
+package/
+submission/
 __pycache__/
 *.class
 *.jar
 *.exe
+*.zip
 *.log
 .vscode/
