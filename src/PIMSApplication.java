@@ -1,8 +1,6 @@
 import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
 import java.awt.*;
-import java.io.File;
-import java.io.FileWriter;
 import java.sql.*;
 import java.time.LocalDate;
 
@@ -15,6 +13,7 @@ public class PIMSApplication {
     private Connection connection;
     private int loggedInUserId;
     private String loggedInRole;
+    private String loggedInName;
 
     public static void main(String[] args) {
         SwingUtilities.invokeLater(() -> {
@@ -59,7 +58,7 @@ public class PIMSApplication {
     private void login(String username, String password) {
         try {
             connect();
-            String sql = "SELECT user_id, role FROM users WHERE username = ? AND password = ?";
+            String sql = "SELECT user_id, role, full_name FROM users WHERE username = ? AND password = ?";
             PreparedStatement statement = connection.prepareStatement(sql);
             statement.setString(1, username);
             statement.setString(2, password);
@@ -67,6 +66,16 @@ public class PIMSApplication {
             if (result.next()) {
                 loggedInUserId = result.getInt("user_id");
                 loggedInRole = result.getString("role");
+                JTextField nameField = new JTextField(result.getString("full_name"));
+                int nameChoice = JOptionPane.showConfirmDialog(frame, nameField, "Enter your name", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
+                if (nameChoice != JOptionPane.OK_OPTION || nameField.getText().trim().isEmpty()) {
+                    return;
+                }
+                loggedInName = nameField.getText().trim();
+                PreparedStatement updateName = connection.prepareStatement("UPDATE users SET full_name = ? WHERE user_id = ?");
+                updateName.setString(1, loggedInName);
+                updateName.setInt(2, loggedInUserId);
+                updateName.executeUpdate();
                 frame.dispose();
                 showDashboard();
             } else {
@@ -99,7 +108,7 @@ public class PIMSApplication {
         frame.setLayout(new BorderLayout());
 
         JPanel header = new JPanel(new BorderLayout());
-        JLabel title = new JLabel("  " + (loggedInRole.equals("Admin") ? "Administrator workspace" : "Cashier workspace"));
+        JLabel title = new JLabel("  " + (loggedInRole.equals("Admin") ? "Administrator workspace" : "Cashier workspace") + " | " + loggedInName);
         title.setFont(new Font("Arial", Font.BOLD, 18));
         JButton signOut = new JButton("Sign out");
         header.add(title, BorderLayout.WEST);
@@ -274,7 +283,7 @@ public class PIMSApplication {
             String billText = "HealthFirst Pharmacy\nSale number: " + saleId + "\nTime: " + new Timestamp(System.currentTimeMillis()) + "\n\n" + cartText() + "\nTotal: R" + String.format("%.2f", total);
             JTextArea bill = new JTextArea(billText, 15, 35);
             bill.setEditable(false);
-            JButton save = new JButton("Save bill");
+            JButton save = new JButton("Save to history");
             JButton print = new JButton("Print bill");
             JButton close = new JButton("Close");
             JPanel buttons = new JPanel();
@@ -285,26 +294,21 @@ public class PIMSApplication {
             dialog.setLayout(new BorderLayout(8, 8));
             dialog.add(new JScrollPane(bill), BorderLayout.CENTER);
             dialog.add(buttons, BorderLayout.SOUTH);
-            save.addActionListener(e -> saveBill(billText));
+            save.addActionListener(e -> {
+                JOptionPane.showMessageDialog(dialog, "Invoice saved to sales history");
+                dialog.dispose();
+            });
             print.addActionListener(e -> {
-                try { bill.print(); }
+                try {
+                    bill.print();
+                    JOptionPane.showMessageDialog(dialog, "Invoice printed and saved to sales history");
+                }
                 catch (Exception error) { JOptionPane.showMessageDialog(dialog, "Could not print bill: " + error.getMessage()); }
             });
             close.addActionListener(e -> dialog.dispose());
             dialog.pack();
             dialog.setLocationRelativeTo(frame);
             dialog.setVisible(true);
-        }
-
-        private void saveBill(String billText) {
-            JFileChooser chooser = new JFileChooser();
-            chooser.setSelectedFile(new File("bill.txt"));
-            if (chooser.showSaveDialog(frame) == JFileChooser.APPROVE_OPTION) {
-                try (FileWriter writer = new FileWriter(chooser.getSelectedFile())) {
-                    writer.write(billText);
-                    JOptionPane.showMessageDialog(frame, "Bill saved successfully");
-                } catch (Exception error) { JOptionPane.showMessageDialog(frame, "Could not save bill: " + error.getMessage()); }
-            }
         }
 
         private String cartText() {
