@@ -1,4 +1,4 @@
-# Pharmacy Inventory Management System
+# HealthFirst Pharmacy Inventory System
 
 ## System design
 

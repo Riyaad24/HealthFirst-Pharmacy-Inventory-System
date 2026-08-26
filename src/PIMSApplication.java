@@ -73,7 +73,7 @@ public class PIMSApplication {
     }
 
     private void showDashboard() {
-        frame = new JFrame("HealthFirst Pharmacy Inventory Management System");
+        frame = new JFrame("HealthFirst Pharmacy Inventory System");
         frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         frame.setSize(900, 600);
         frame.setLocationRelativeTo(null);

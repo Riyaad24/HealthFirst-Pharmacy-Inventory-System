@@ -1,4 +1,4 @@
-HealthFirst Pharmacy Inventory Management System
+HealthFirst Pharmacy Inventory System
 
 Default login details
 Admin: admin / admin123
