@@ -252,9 +252,10 @@ public class PIMSApplication {
             try {
                 connect();
                 connection.setAutoCommit(false);
-                PreparedStatement sale = connection.prepareStatement("INSERT INTO sales(total_amount, user_id) VALUES (?, ?)", Statement.RETURN_GENERATED_KEYS);
+                PreparedStatement sale = connection.prepareStatement("INSERT INTO sales(total_amount, user_id, staff_name) VALUES (?, ?, ?)", Statement.RETURN_GENERATED_KEYS);
                 sale.setDouble(1, total);
                 sale.setInt(2, loggedInUserId);
+                sale.setString(3, loggedInName);
                 sale.executeUpdate();
                 ResultSet keys = sale.getGeneratedKeys();
                 keys.next();
@@ -358,9 +359,9 @@ public class PIMSApplication {
         model.setRowCount(0);
         try {
             connect();
-            String sql = "SELECT s.sale_id, s.sale_date, GROUP_CONCAT(CONCAT(m.name, ' (', m.medicine_type, ') x ', si.quantity_sold) SEPARATOR ', '), s.total_amount, u.full_name FROM sales s JOIN users u ON s.user_id = u.user_id JOIN sale_items si ON s.sale_id = si.sale_id JOIN medicines m ON si.medicine_id = m.medicine_id";
+            String sql = "SELECT s.sale_id, s.sale_date, GROUP_CONCAT(CONCAT(m.name, ' (', m.medicine_type, ') x ', si.quantity_sold) SEPARATOR ', '), s.total_amount, s.staff_name FROM sales s JOIN sale_items si ON s.sale_id = si.sale_id JOIN medicines m ON si.medicine_id = m.medicine_id";
             if (!showAllSales) sql += " WHERE s.user_id = ?";
-            sql += " GROUP BY s.sale_id, s.sale_date, s.total_amount, u.full_name ORDER BY s.sale_date DESC";
+            sql += " GROUP BY s.sale_id, s.sale_date, s.total_amount, s.staff_name ORDER BY s.sale_date DESC";
             PreparedStatement statement = connection.prepareStatement(sql);
             if (!showAllSales) statement.setInt(1, loggedInUserId);
             ResultSet result = statement.executeQuery();
