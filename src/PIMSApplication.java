@@ -339,7 +339,7 @@ public class PIMSApplication {
     private class SalesHistoryPanel extends JPanel {
         SalesHistoryPanel(boolean showAllSales) {
             setLayout(new BorderLayout());
-            JTable table = makeTable(new String[]{"Sale number", "Time", "Total", "Cashier"});
+            JTable table = makeTable(new String[]{"Sale number", "Time", "Products sold", "Total", "Cashier"});
             JButton refresh = new JButton("Refresh history");
             add(refresh, BorderLayout.NORTH);
             add(new JScrollPane(table), BorderLayout.CENTER);
@@ -353,9 +353,9 @@ public class PIMSApplication {
         model.setRowCount(0);
         try {
             connect();
-            String sql = "SELECT s.sale_id, s.sale_date, s.total_amount, u.full_name FROM sales s JOIN users u ON s.user_id = u.user_id";
+            String sql = "SELECT s.sale_id, s.sale_date, GROUP_CONCAT(CONCAT(m.name, ' (', m.medicine_type, ') x ', si.quantity_sold) SEPARATOR ', '), s.total_amount, u.full_name FROM sales s JOIN users u ON s.user_id = u.user_id JOIN sale_items si ON s.sale_id = si.sale_id JOIN medicines m ON si.medicine_id = m.medicine_id";
             if (!showAllSales) sql += " WHERE s.user_id = ?";
-            sql += " ORDER BY s.sale_date DESC";
+            sql += " GROUP BY s.sale_id, s.sale_date, s.total_amount, u.full_name ORDER BY s.sale_date DESC";
             PreparedStatement statement = connection.prepareStatement(sql);
             if (!showAllSales) statement.setInt(1, loggedInUserId);
             ResultSet result = statement.executeQuery();
