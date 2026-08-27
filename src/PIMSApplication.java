@@ -78,7 +78,12 @@ public class PIMSApplication {
                 updateName.setInt(2, loggedInUserId);
                 updateName.executeUpdate();
                 frame.dispose();
-                showDashboard();
+                try {
+                    showDashboard();
+                } catch (RuntimeException error) {
+                    showLogin();
+                    JOptionPane.showMessageDialog(frame, "Could not open the workspace: " + error.getMessage());
+                }
             } else {
                 JOptionPane.showMessageDialog(frame, "Username or password is incorrect");
             }
@@ -359,7 +364,7 @@ public class PIMSApplication {
             PreparedStatement statement = connection.prepareStatement(sql);
             if (!showAllSales) statement.setInt(1, loggedInUserId);
             ResultSet result = statement.executeQuery();
-            while (result.next()) model.addRow(new Object[]{result.getInt(1), result.getTimestamp(2), result.getDouble(3), result.getString(4)});
+            while (result.next()) model.addRow(new Object[]{result.getInt(1), result.getTimestamp(2), result.getString(3), result.getDouble(4), result.getString(5)});
         } catch (SQLException error) { showDatabaseError(error); }
     }
 
