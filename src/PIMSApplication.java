@@ -60,7 +60,7 @@ public class PIMSApplication {
             connect();
             String sql = "SELECT user_id, role, full_name FROM users WHERE username = ? AND password = ?";
             PreparedStatement statement = connection.prepareStatement(sql);
-            statement.setString(1, username);
+            statement.setString(1, username.trim());
             statement.setString(2, password);
             ResultSet result = statement.executeQuery();
             if (result.next()) {
@@ -69,6 +69,7 @@ public class PIMSApplication {
                 JTextField nameField = new JTextField(result.getString("full_name"));
                 int nameChoice = JOptionPane.showConfirmDialog(frame, nameField, "Enter your name", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
                 if (nameChoice != JOptionPane.OK_OPTION || nameField.getText().trim().isEmpty()) {
+                    JOptionPane.showMessageDialog(frame, "Please enter a name before continuing");
                     return;
                 }
                 loggedInName = nameField.getText().trim();
