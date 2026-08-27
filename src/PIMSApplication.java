@@ -103,6 +103,17 @@ public class PIMSApplication {
                 dbPassword = new String(passwordField.getPassword());
             }
             connection = DriverManager.getConnection(URL, DB_USER, dbPassword);
+            ensureSalesStaffColumn();
+        }
+    }
+
+    private void ensureSalesStaffColumn() throws SQLException {
+        String checkSql = "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'sales' AND column_name = 'staff_name'";
+        try (PreparedStatement check = connection.prepareStatement(checkSql); ResultSet result = check.executeQuery()) {
+            result.next();
+            if (result.getInt(1) == 0) {
+                connection.createStatement().executeUpdate("ALTER TABLE sales ADD COLUMN staff_name VARCHAR(100) NOT NULL DEFAULT 'Unknown'");
+            }
         }
     }
 
