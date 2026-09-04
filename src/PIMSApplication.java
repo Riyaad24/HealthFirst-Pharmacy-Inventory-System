@@ -427,43 +427,10 @@ public class PIMSApplication {
             setLayout(new BorderLayout());
             JTable table = makeTable(new String[]{"Sale number", "Time", "Customer", "Products sold", "Total", "Payment", "Staff"});
             JButton refresh = new JButton("Refresh history");
-            JButton deleteLastFive = new JButton("Delete last 5 sales");
             add(refresh, BorderLayout.NORTH);
-            if (showAllSales) add(deleteLastFive, BorderLayout.SOUTH);
             add(new JScrollPane(table), BorderLayout.CENTER);
             refresh.addActionListener(e -> loadSalesHistory(table, showAllSales));
-            deleteLastFive.addActionListener(e -> deleteLastFiveSales(table));
             loadSalesHistory(table, showAllSales);
-        }
-    }
-
-    private void deleteLastFiveSales(JTable table) {
-        int answer = JOptionPane.showConfirmDialog(frame, "Delete the five most recent sales?", "Confirm deletion", JOptionPane.YES_NO_OPTION);
-        if (answer != JOptionPane.YES_OPTION) return;
-        try {
-            connect();
-            connection.setAutoCommit(false);
-            Statement statement = connection.createStatement();
-            ResultSet sales = statement.executeQuery("SELECT sale_id FROM sales ORDER BY sale_date DESC, sale_id DESC LIMIT 5");
-            java.util.List<Integer> saleIds = new java.util.ArrayList<>();
-            while (sales.next()) saleIds.add(sales.getInt(1));
-            PreparedStatement deleteItems = connection.prepareStatement("DELETE FROM sale_items WHERE sale_id = ?");
-            PreparedStatement deleteSales = connection.prepareStatement("DELETE FROM sales WHERE sale_id = ?");
-            for (Integer saleId : saleIds) {
-                deleteItems.setInt(1, saleId);
-                deleteItems.addBatch();
-                deleteSales.setInt(1, saleId);
-                deleteSales.addBatch();
-            }
-            deleteItems.executeBatch();
-            deleteSales.executeBatch();
-            connection.commit();
-            connection.setAutoCommit(true);
-            loadSalesHistory(table, true);
-            JOptionPane.showMessageDialog(frame, saleIds.size() + " sale(s) deleted");
-        } catch (SQLException error) {
-            try { connection.rollback(); } catch (SQLException ignored) { }
-            showDatabaseError(error);
         }
     }
 
@@ -576,7 +543,7 @@ public class PIMSApplication {
         if (JOptionPane.showConfirmDialog(frame, panel, "Edit medicine", JOptionPane.OK_CANCEL_OPTION) == JOptionPane.OK_OPTION) {
             try {
                 connect();
-                PreparedStatement statement = connection.prepareStatement("UPDATE medicines SET name = ?, company = ?, medicine_type = ?, price = ?, quantity_in_stock = ?, reorder_level = ?, expiry_date = ?, supplier_id = ? WHERE medicine_id = ?");
+                PreparedStatement statement = connection.prepareStatement("UPDATE medicines SET name = ?, company = ?, medicine_type = ?, medicine_category = ?, price = ?, quantity_in_stock = ?, reorder_level = ?, expiry_date = ?, supplier_id = ? WHERE medicine_id = ?");
                 statement.setString(1, name.getText()); statement.setString(2, company.getText()); statement.setString(3, type.getText()); statement.setString(4, category.getText()); statement.setDouble(5, Double.parseDouble(price.getText())); statement.setInt(6, Integer.parseInt(quantity.getText())); statement.setInt(7, Integer.parseInt(reorder.getText())); statement.setDate(8, Date.valueOf(LocalDate.parse(expiry.getText()))); statement.setInt(9, Integer.parseInt(supplier.getText())); statement.setInt(10, (Integer) table.getValueAt(row, 0)); statement.executeUpdate(); loadMedicines(table);
             } catch (Exception error) { JOptionPane.showMessageDialog(frame, "Could not edit medicine: " + error.getMessage()); }
         }
