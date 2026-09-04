@@ -28,6 +28,7 @@ CREATE TABLE medicines (
     quantity_in_stock INT NOT NULL,
     reorder_level INT NOT NULL,
     expiry_date DATE NOT NULL,
+    medicine_category ENUM('Prescribed', 'Over the Counter') NOT NULL DEFAULT 'Over the Counter',
     supplier_id INT NOT NULL,
     FOREIGN KEY (supplier_id) REFERENCES suppliers(supplier_id)
 );
@@ -38,6 +39,7 @@ CREATE TABLE sales (
     total_amount DECIMAL(10,2) NOT NULL,
     user_id INT NOT NULL,
     staff_name VARCHAR(100) NOT NULL,
+    customer_name VARCHAR(150) NOT NULL,
     FOREIGN KEY (user_id) REFERENCES users(user_id)
 );
 
@@ -136,3 +138,7 @@ INSERT INTO medicines(name, company, medicine_type, price, quantity_in_stock, re
 ('Bepanthen', 'Bayer', 'Cream', 86.00, 40, 10, '2027-06-30', 10),
 ('E45', 'Karo Healthcare', 'Cream', 98.00, 30, 8, '2027-06-30', 18),
 ('NorLevo', 'HRA Pharma', 'Tablets', 115.00, 25, 5, '2027-06-30', 19);
+
+UPDATE medicines SET medicine_category = 'Prescribed'
+WHERE name IN ('Adco-Zolpidem', 'Augmentin', 'Amoxil', 'Flagyl', 'NorLevo')
+    AND medicine_category = 'Over the Counter';

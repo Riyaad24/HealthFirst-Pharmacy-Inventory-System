@@ -115,6 +115,19 @@ public class PIMSApplication {
                 connection.createStatement().executeUpdate("ALTER TABLE sales ADD COLUMN staff_name VARCHAR(100) NOT NULL DEFAULT 'Unknown'");
             }
         }
+        addColumnIfMissing("sales", "customer_name", "VARCHAR(150) NOT NULL DEFAULT 'Walk in customer'");
+        addColumnIfMissing("medicines", "medicine_category", "ENUM('Prescribed', 'Over the Counter') NOT NULL DEFAULT 'Over the Counter'");
+    }
+
+    private void addColumnIfMissing(String tableName, String columnName, String definition) throws SQLException {
+        String checkSql = "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = ? AND column_name = ?";
+        try (PreparedStatement check = connection.prepareStatement(checkSql)) {
+            check.setString(1, tableName);
+            check.setString(2, columnName);
+            ResultSet result = check.executeQuery();
+            result.next();
+            if (result.getInt(1) == 0) connection.createStatement().executeUpdate("ALTER TABLE " + tableName + " ADD COLUMN " + columnName + " " + definition);
+        }
     }
 
     private void showDashboard() {
@@ -135,6 +148,7 @@ public class PIMSApplication {
         JTabbedPane tabs = new JTabbedPane();
         if (loggedInRole.equals("Admin")) {
             tabs.addTab("Admin home", new AdminHomePanel());
+            tabs.addTab("Point of Sale", new POSPanel());
             tabs.addTab("Medicines", new MedicinePanel());
             tabs.addTab("Suppliers", new SupplierPanel());
             tabs.addTab("Users", new UserPanel());
@@ -196,7 +210,8 @@ public class PIMSApplication {
         private JTextField medicineId = new JTextField();
         private JTextField quantity = new JTextField("1");
         private JLabel totalLabel = new JLabel("Total: R0.00");
-        private double total;
+        private double subtotal;
+        private double taxTotal;
 
         POSPanel() {
             setLayout(new BorderLayout(8, 8));
@@ -214,7 +229,7 @@ public class PIMSApplication {
             top.add(totalLabel);
             add(top, BorderLayout.NORTH);
 
-            cartModel = new DefaultTableModel(new String[]{"Medicine", "Price", "Quantity", "Amount"}, 0);
+            cartModel = new DefaultTableModel(new String[]{"Medicine", "Type", "Category", "Price", "Quantity", "Tax", "Total"}, 0);
             add(new JScrollPane(new JTable(cartModel)), BorderLayout.CENTER);
             add.addActionListener(e -> addItem());
             clear.addActionListener(e -> clearCart());
@@ -226,7 +241,7 @@ public class PIMSApplication {
                 connect();
                 int id = Integer.parseInt(medicineId.getText());
                 int amount = Integer.parseInt(quantity.getText());
-                PreparedStatement statement = connection.prepareStatement("SELECT name, price, quantity_in_stock FROM medicines WHERE medicine_id = ?");
+                PreparedStatement statement = connection.prepareStatement("SELECT name, medicine_type, medicine_category, price, quantity_in_stock FROM medicines WHERE medicine_id = ?");
                 statement.setInt(1, id);
                 ResultSet result = statement.executeQuery();
                 if (!result.next()) {
@@ -239,9 +254,12 @@ public class PIMSApplication {
                 }
                 double price = result.getDouble("price");
                 double lineTotal = price * amount;
-                cartModel.addRow(new Object[]{id + " " + result.getString("name"), price, amount, lineTotal});
-                total += lineTotal;
-                totalLabel.setText(String.format("Total: R%.2f", total));
+                String category = result.getString("medicine_category");
+                double lineTax = category.equals("Over the Counter") ? lineTotal * 0.15 : 0;
+                cartModel.addRow(new Object[]{id + " " + result.getString("name"), result.getString("medicine_type"), category, price, amount, lineTax, lineTotal + lineTax});
+                subtotal += lineTotal;
+                taxTotal += lineTax;
+                updateTotal();
             } catch (NumberFormatException error) {
                 JOptionPane.showMessageDialog(frame, "Enter valid numbers");
             } catch (SQLException error) {
@@ -251,8 +269,13 @@ public class PIMSApplication {
 
         private void clearCart() {
             cartModel.setRowCount(0);
-            total = 0;
+            subtotal = 0;
+            taxTotal = 0;
             totalLabel.setText("Total: R0.00");
+        }
+
+        private void updateTotal() {
+            totalLabel.setText(String.format("Total: R%.2f", subtotal + taxTotal));
         }
 
         private void checkout() {
@@ -262,11 +285,16 @@ public class PIMSApplication {
             }
             try {
                 connect();
+                JTextField customerField = new JTextField();
+                int customerChoice = JOptionPane.showConfirmDialog(frame, customerField, "Enter customer name and surname", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
+                if (customerChoice != JOptionPane.OK_OPTION || customerField.getText().trim().isEmpty()) return;
+                String customerName = customerField.getText().trim();
                 connection.setAutoCommit(false);
-                PreparedStatement sale = connection.prepareStatement("INSERT INTO sales(total_amount, user_id, staff_name) VALUES (?, ?, ?)", Statement.RETURN_GENERATED_KEYS);
-                sale.setDouble(1, total);
+                PreparedStatement sale = connection.prepareStatement("INSERT INTO sales(total_amount, user_id, staff_name, customer_name) VALUES (?, ?, ?, ?)", Statement.RETURN_GENERATED_KEYS);
+                sale.setDouble(1, subtotal + taxTotal);
                 sale.setInt(2, loggedInUserId);
                 sale.setString(3, loggedInName);
+                sale.setString(4, customerName);
                 sale.executeUpdate();
                 ResultSet keys = sale.getGeneratedKeys();
                 keys.next();
@@ -274,8 +302,8 @@ public class PIMSApplication {
                 for (int row = 0; row < cartModel.getRowCount(); row++) {
                     String item = cartModel.getValueAt(row, 0).toString();
                     int id = Integer.parseInt(item.substring(0, item.indexOf(' ')));
-                    int amount = (Integer) cartModel.getValueAt(row, 2);
-                    double price = (Double) cartModel.getValueAt(row, 1);
+                    int amount = (Integer) cartModel.getValueAt(row, 4);
+                    double price = (Double) cartModel.getValueAt(row, 3);
                     PreparedStatement line = connection.prepareStatement("INSERT INTO sale_items(sale_id, medicine_id, quantity_sold, price_at_sale) VALUES (?, ?, ?, ?)");
                     line.setInt(1, saleId);
                     line.setInt(2, id);
@@ -288,7 +316,7 @@ public class PIMSApplication {
                     stock.executeUpdate();
                 }
                 connection.commit();
-                showBill(saleId);
+                showBill(saleId, customerName);
                 clearCart();
                 connection.setAutoCommit(true);
             } catch (SQLException error) {
@@ -297,8 +325,8 @@ public class PIMSApplication {
             }
         }
 
-        private void showBill(int saleId) {
-            String billText = "HealthFirst Pharmacy\nSale number: " + saleId + "\nTime: " + new Timestamp(System.currentTimeMillis()) + "\n\n" + cartText() + "\nTotal: R" + String.format("%.2f", total);
+        private void showBill(int saleId, String customerName) {
+            String billText = "HEALTHFIRST PHARMACY\n12 Main Street, Johannesburg\nTel: 011 555 0100 | VAT registered\n----------------------------------------\nCustomer: " + customerName + "\nServed by: " + loggedInName + "\nSale number: " + saleId + "\nDate: " + new Timestamp(System.currentTimeMillis()) + "\n----------------------------------------\n" + cartText() + "----------------------------------------\nSubtotal: R" + String.format("%.2f", subtotal) + "\nTax: R" + String.format("%.2f", taxTotal) + "\nTOTAL: R" + String.format("%.2f", subtotal + taxTotal) + "\n\nThank you for shopping with HealthFirst.";
             JTextArea bill = new JTextArea(billText, 15, 35);
             bill.setEditable(false);
             JButton save = new JButton("Save to history");
@@ -332,7 +360,7 @@ public class PIMSApplication {
         private String cartText() {
             StringBuilder text = new StringBuilder();
             for (int row = 0; row < cartModel.getRowCount(); row++) {
-                text.append(cartModel.getValueAt(row, 0)).append(" x ").append(cartModel.getValueAt(row, 2)).append("\n");
+                text.append(cartModel.getValueAt(row, 0)).append(" | ").append(cartModel.getValueAt(row, 2)).append(" | Qty: ").append(cartModel.getValueAt(row, 4)).append(" | Tax: R").append(String.format("%.2f", cartModel.getValueAt(row, 5))).append(" | Total: R").append(String.format("%.2f", cartModel.getValueAt(row, 6))).append("\n");
             }
             return text.toString();
         }
@@ -343,20 +371,25 @@ public class PIMSApplication {
             setLayout(new BorderLayout());
             JTextField search = new JTextField();
             JButton find = new JButton("Check medicine");
-            JTable table = makeTable(new String[]{"ID", "Name", "Price", "Available", "Expiry"});
+            JTable table = makeTable(new String[]{"ID", "Name", "Type", "Category", "Price", "Available", "Expiry"});
             JPanel top = new JPanel(new BorderLayout(8, 8));
             top.add(search, BorderLayout.CENTER);
-            top.add(find, BorderLayout.EAST);
+            JPanel actions = new JPanel();
+            JButton changeCategory = new JButton("Change tax category");
+            actions.add(find);
+            actions.add(changeCategory);
+            top.add(actions, BorderLayout.EAST);
             add(top, BorderLayout.NORTH);
             add(new JScrollPane(table), BorderLayout.CENTER);
             find.addActionListener(e -> loadStock(table, search.getText()));
+            changeCategory.addActionListener(e -> changeMedicineCategory(table));
         }
     }
 
     private class SalesHistoryPanel extends JPanel {
         SalesHistoryPanel(boolean showAllSales) {
             setLayout(new BorderLayout());
-            JTable table = makeTable(new String[]{"Sale number", "Time", "Products sold", "Total", "Cashier"});
+            JTable table = makeTable(new String[]{"Sale number", "Time", "Customer", "Products sold", "Total", "Staff"});
             JButton refresh = new JButton("Refresh history");
             add(refresh, BorderLayout.NORTH);
             add(new JScrollPane(table), BorderLayout.CENTER);
@@ -370,13 +403,13 @@ public class PIMSApplication {
         model.setRowCount(0);
         try {
             connect();
-            String sql = "SELECT s.sale_id, s.sale_date, GROUP_CONCAT(CONCAT(m.name, ' (', m.medicine_type, ') x ', si.quantity_sold) SEPARATOR ', '), s.total_amount, s.staff_name FROM sales s JOIN sale_items si ON s.sale_id = si.sale_id JOIN medicines m ON si.medicine_id = m.medicine_id";
+            String sql = "SELECT s.sale_id, s.sale_date, s.customer_name, GROUP_CONCAT(CONCAT(m.name, ' (', m.medicine_type, ') x ', si.quantity_sold) SEPARATOR ', '), s.total_amount, s.staff_name FROM sales s JOIN sale_items si ON s.sale_id = si.sale_id JOIN medicines m ON si.medicine_id = m.medicine_id";
             if (!showAllSales) sql += " WHERE s.user_id = ?";
-            sql += " GROUP BY s.sale_id, s.sale_date, s.total_amount, s.staff_name ORDER BY s.sale_date DESC";
+            sql += " GROUP BY s.sale_id, s.sale_date, s.customer_name, s.total_amount, s.staff_name ORDER BY s.sale_date DESC";
             PreparedStatement statement = connection.prepareStatement(sql);
             if (!showAllSales) statement.setInt(1, loggedInUserId);
             ResultSet result = statement.executeQuery();
-            while (result.next()) model.addRow(new Object[]{result.getInt(1), result.getTimestamp(2), result.getString(3), result.getDouble(4), result.getString(5)});
+            while (result.next()) model.addRow(new Object[]{result.getInt(1), result.getTimestamp(2), result.getString(3), result.getString(4), result.getDouble(5), result.getString(6)});
         } catch (SQLException error) { showDatabaseError(error); }
     }
 
@@ -385,17 +418,33 @@ public class PIMSApplication {
         model.setRowCount(0);
         try {
             connect();
-            PreparedStatement statement = connection.prepareStatement("SELECT medicine_id, name, price, quantity_in_stock, expiry_date FROM medicines WHERE name LIKE ?");
+            PreparedStatement statement = connection.prepareStatement("SELECT medicine_id, name, medicine_type, medicine_category, price, quantity_in_stock, expiry_date FROM medicines WHERE name LIKE ?");
             statement.setString(1, "%" + search + "%");
             ResultSet result = statement.executeQuery();
-            while (result.next()) model.addRow(new Object[]{result.getInt(1), result.getString(2), result.getDouble(3), result.getInt(4), result.getDate(5)});
+            while (result.next()) model.addRow(new Object[]{result.getInt(1), result.getString(2), result.getString(3), result.getString(4), result.getDouble(5), result.getInt(6), result.getDate(7)});
+        } catch (SQLException error) { showDatabaseError(error); }
+    }
+
+    private void changeMedicineCategory(JTable table) {
+        int row = table.getSelectedRow();
+        if (row < 0) return;
+        String[] options = {"Prescribed", "Over the Counter"};
+        String category = (String) JOptionPane.showInputDialog(frame, "Select medicine category", "Tax category", JOptionPane.PLAIN_MESSAGE, null, options, table.getValueAt(row, 3));
+        if (category == null) return;
+        try {
+            connect();
+            PreparedStatement statement = connection.prepareStatement("UPDATE medicines SET medicine_category = ? WHERE medicine_id = ?");
+            statement.setString(1, category);
+            statement.setInt(2, (Integer) table.getValueAt(row, 0));
+            statement.executeUpdate();
+            loadStock(table, "");
         } catch (SQLException error) { showDatabaseError(error); }
     }
 
     private class MedicinePanel extends JPanel {
         MedicinePanel() {
             setLayout(new BorderLayout());
-            JTable table = makeTable(new String[]{"ID", "Name", "Company", "Type", "Price", "Quantity", "Reorder", "Expiry", "Supplier"});
+            JTable table = makeTable(new String[]{"ID", "Name", "Company", "Type", "Category", "Price", "Quantity", "Reorder", "Expiry", "Supplier"});
             JPanel buttons = new JPanel();
             JButton refresh = new JButton("Refresh");
             JButton add = new JButton("Add medicine");
@@ -414,20 +463,20 @@ public class PIMSApplication {
     private void loadMedicines(JTable table) {
         DefaultTableModel model = (DefaultTableModel) table.getModel(); model.setRowCount(0);
         try {
-            connect(); ResultSet result = connection.createStatement().executeQuery("SELECT medicine_id, name, company, medicine_type, price, quantity_in_stock, reorder_level, expiry_date, supplier_id FROM medicines");
-            while (result.next()) model.addRow(new Object[]{result.getInt(1), result.getString(2), result.getString(3), result.getString(4), result.getDouble(5), result.getInt(6), result.getInt(7), result.getDate(8), result.getInt(9)});
+            connect(); ResultSet result = connection.createStatement().executeQuery("SELECT medicine_id, name, company, medicine_type, medicine_category, price, quantity_in_stock, reorder_level, expiry_date, supplier_id FROM medicines");
+            while (result.next()) model.addRow(new Object[]{result.getInt(1), result.getString(2), result.getString(3), result.getString(4), result.getString(5), result.getDouble(6), result.getInt(7), result.getInt(8), result.getDate(9), result.getInt(10)});
         } catch (SQLException error) { showDatabaseError(error); }
     }
 
     private void medicineForm(JTable table) {
-        JTextField name = new JTextField(), company = new JTextField(), type = new JTextField("Tablet"), price = new JTextField(), quantity = new JTextField(), reorder = new JTextField(), expiry = new JTextField("2027-12-31"), supplier = new JTextField();
-        JTextField[] fields = {name, company, type, price, quantity, reorder, expiry, supplier};
-        JPanel panel = new JPanel(new GridLayout(8, 2)); String[] labels = {"Name", "Company", "Type", "Price", "Quantity", "Reorder level", "Expiry yyyy mm dd", "Supplier ID"};
+        JTextField name = new JTextField(), company = new JTextField(), type = new JTextField("Tablet"), category = new JTextField("Over the Counter"), price = new JTextField(), quantity = new JTextField(), reorder = new JTextField(), expiry = new JTextField("2027-12-31"), supplier = new JTextField();
+        JTextField[] fields = {name, company, type, category, price, quantity, reorder, expiry, supplier};
+        JPanel panel = new JPanel(new GridLayout(9, 2)); String[] labels = {"Name", "Company", "Type", "Category", "Price", "Quantity", "Reorder level", "Expiry yyyy mm dd", "Supplier ID"};
         for (int i = 0; i < fields.length; i++) { panel.add(new JLabel(labels[i])); panel.add(fields[i]); }
         if (JOptionPane.showConfirmDialog(frame, panel, "Add medicine", JOptionPane.OK_CANCEL_OPTION) == JOptionPane.OK_OPTION) {
             try {
-                connect(); PreparedStatement statement = connection.prepareStatement("INSERT INTO medicines(name, company, medicine_type, price, quantity_in_stock, reorder_level, expiry_date, supplier_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
-                statement.setString(1, name.getText()); statement.setString(2, company.getText()); statement.setString(3, type.getText()); statement.setDouble(4, Double.parseDouble(price.getText())); statement.setInt(5, Integer.parseInt(quantity.getText())); statement.setInt(6, Integer.parseInt(reorder.getText())); statement.setDate(7, Date.valueOf(LocalDate.parse(expiry.getText()))); statement.setInt(8, Integer.parseInt(supplier.getText())); statement.executeUpdate(); loadMedicines(table);
+                connect(); PreparedStatement statement = connection.prepareStatement("INSERT INTO medicines(name, company, medicine_type, medicine_category, price, quantity_in_stock, reorder_level, expiry_date, supplier_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
+                statement.setString(1, name.getText()); statement.setString(2, company.getText()); statement.setString(3, type.getText()); statement.setString(4, category.getText()); statement.setDouble(5, Double.parseDouble(price.getText())); statement.setInt(6, Integer.parseInt(quantity.getText())); statement.setInt(7, Integer.parseInt(reorder.getText())); statement.setDate(8, Date.valueOf(LocalDate.parse(expiry.getText()))); statement.setInt(9, Integer.parseInt(supplier.getText())); statement.executeUpdate(); loadMedicines(table);
             } catch (Exception error) { JOptionPane.showMessageDialog(frame, "Could not add medicine: " + error.getMessage()); }
         }
     }
@@ -444,20 +493,21 @@ public class PIMSApplication {
         JTextField name = new JTextField(table.getValueAt(row, 1).toString());
         JTextField company = new JTextField(table.getValueAt(row, 2).toString());
         JTextField type = new JTextField(table.getValueAt(row, 3).toString());
-        JTextField price = new JTextField(table.getValueAt(row, 4).toString());
-        JTextField quantity = new JTextField(table.getValueAt(row, 5).toString());
-        JTextField reorder = new JTextField(table.getValueAt(row, 6).toString());
-        JTextField expiry = new JTextField(table.getValueAt(row, 7).toString());
-        JTextField supplier = new JTextField(table.getValueAt(row, 8).toString());
-        JTextField[] fields = {name, company, type, price, quantity, reorder, expiry, supplier};
-        JPanel panel = new JPanel(new GridLayout(8, 2));
-        String[] labels = {"Name", "Company", "Type", "Price", "Quantity", "Reorder level", "Expiry", "Supplier ID"};
+        JTextField category = new JTextField(table.getValueAt(row, 4).toString());
+        JTextField price = new JTextField(table.getValueAt(row, 5).toString());
+        JTextField quantity = new JTextField(table.getValueAt(row, 6).toString());
+        JTextField reorder = new JTextField(table.getValueAt(row, 7).toString());
+        JTextField expiry = new JTextField(table.getValueAt(row, 8).toString());
+        JTextField supplier = new JTextField(table.getValueAt(row, 9).toString());
+        JTextField[] fields = {name, company, type, category, price, quantity, reorder, expiry, supplier};
+        JPanel panel = new JPanel(new GridLayout(9, 2));
+        String[] labels = {"Name", "Company", "Type", "Category", "Price", "Quantity", "Reorder level", "Expiry", "Supplier ID"};
         for (int i = 0; i < fields.length; i++) { panel.add(new JLabel(labels[i])); panel.add(fields[i]); }
         if (JOptionPane.showConfirmDialog(frame, panel, "Edit medicine", JOptionPane.OK_CANCEL_OPTION) == JOptionPane.OK_OPTION) {
             try {
                 connect();
                 PreparedStatement statement = connection.prepareStatement("UPDATE medicines SET name = ?, company = ?, medicine_type = ?, price = ?, quantity_in_stock = ?, reorder_level = ?, expiry_date = ?, supplier_id = ? WHERE medicine_id = ?");
-                statement.setString(1, name.getText()); statement.setString(2, company.getText()); statement.setString(3, type.getText()); statement.setDouble(4, Double.parseDouble(price.getText())); statement.setInt(5, Integer.parseInt(quantity.getText())); statement.setInt(6, Integer.parseInt(reorder.getText())); statement.setDate(7, Date.valueOf(LocalDate.parse(expiry.getText()))); statement.setInt(8, Integer.parseInt(supplier.getText())); statement.setInt(9, (Integer) table.getValueAt(row, 0)); statement.executeUpdate(); loadMedicines(table);
+                statement.setString(1, name.getText()); statement.setString(2, company.getText()); statement.setString(3, type.getText()); statement.setString(4, category.getText()); statement.setDouble(5, Double.parseDouble(price.getText())); statement.setInt(6, Integer.parseInt(quantity.getText())); statement.setInt(7, Integer.parseInt(reorder.getText())); statement.setDate(8, Date.valueOf(LocalDate.parse(expiry.getText()))); statement.setInt(9, Integer.parseInt(supplier.getText())); statement.setInt(10, (Integer) table.getValueAt(row, 0)); statement.executeUpdate(); loadMedicines(table);
             } catch (Exception error) { JOptionPane.showMessageDialog(frame, "Could not edit medicine: " + error.getMessage()); }
         }
     }
