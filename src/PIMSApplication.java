@@ -290,9 +290,19 @@ public class PIMSApplication {
                 int customerChoice = JOptionPane.showConfirmDialog(frame, customerField, "Enter customer name and surname", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
                 if (customerChoice != JOptionPane.OK_OPTION || customerField.getText().trim().isEmpty()) return;
                 String customerName = customerField.getText().trim();
+                double saleTotal = subtotal + taxTotal;
+                JTextField cashField = new JTextField();
+                int cashChoice = JOptionPane.showConfirmDialog(frame, cashField, "Enter cash received for R" + String.format("%.2f", saleTotal), JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
+                if (cashChoice != JOptionPane.OK_OPTION) return;
+                double cashReceived = Double.parseDouble(cashField.getText().trim());
+                if (cashReceived < saleTotal) {
+                    JOptionPane.showMessageDialog(frame, "The amount received is less than the sale total");
+                    return;
+                }
+                double change = cashReceived - saleTotal;
                 connection.setAutoCommit(false);
                 PreparedStatement sale = connection.prepareStatement("INSERT INTO sales(total_amount, user_id, staff_name, customer_name) VALUES (?, ?, ?, ?)", Statement.RETURN_GENERATED_KEYS);
-                sale.setDouble(1, subtotal + taxTotal);
+                sale.setDouble(1, saleTotal);
                 sale.setInt(2, loggedInUserId);
                 sale.setString(3, loggedInName);
                 sale.setString(4, customerName);
@@ -317,18 +327,20 @@ public class PIMSApplication {
                     stock.executeUpdate();
                 }
                 connection.commit();
-                showBill(saleId, customerName);
+                showBill(saleId, customerName, cashReceived, change);
                 clearCart();
                 connection.setAutoCommit(true);
             } catch (SQLException error) {
                 try { connection.rollback(); } catch (SQLException ignored) { }
                 showDatabaseError(error);
+            } catch (NumberFormatException error) {
+                JOptionPane.showMessageDialog(frame, "Enter a valid cash amount");
             }
         }
 
-        private void showBill(int saleId, String customerName) {
+        private void showBill(int saleId, String customerName, double cashReceived, double change) {
             String saleTime = new SimpleDateFormat("dd MMM yyyy, hh:mm a").format(new java.util.Date());
-            String billText = "========================================\n          HEALTHFIRST PHARMACY\n       12 Main Street, Johannesburg\n       Tel: 011 555 0100 | VAT registered\n========================================\nCustomer: " + customerName + "\nServed by: " + loggedInName + "\nSale number: " + saleId + "\nDate: " + saleTime + "\n----------------------------------------\nItems purchased\n----------------------------------------\n" + cartText() + "----------------------------------------\nSubtotal: R" + String.format("%.2f", subtotal) + "\nTax: R" + String.format("%.2f", taxTotal) + "\nTOTAL: R" + String.format("%.2f", subtotal + taxTotal) + "\n========================================\nThank you for shopping with HealthFirst.";
+            String billText = "========================================\n          HEALTHFIRST PHARMACY\n       12 Main Street, Johannesburg\n       Tel: 011 555 0100 | VAT registered\n========================================\nCustomer: " + customerName + "\nServed by: " + loggedInName + "\nSale number: " + saleId + "\nDate: " + saleTime + "\n----------------------------------------\nItems purchased\n----------------------------------------\n" + cartText() + "----------------------------------------\nSubtotal: R" + String.format("%.2f", subtotal) + "\nTax: R" + String.format("%.2f", taxTotal) + "\nTOTAL: R" + String.format("%.2f", subtotal + taxTotal) + "\nCash received: R" + String.format("%.2f", cashReceived) + "\nChange: R" + String.format("%.2f", change) + "\n========================================\nThank you for shopping with HealthFirst.";
             JTextArea bill = new JTextArea(billText, 15, 35);
             bill.setEditable(false);
             JButton save = new JButton("Save to history");
