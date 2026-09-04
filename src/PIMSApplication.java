@@ -117,6 +117,10 @@ public class PIMSApplication {
             }
         }
         addColumnIfMissing("sales", "customer_name", "VARCHAR(150) NOT NULL DEFAULT 'Walk in customer'");
+        addColumnIfMissing("sales", "payment_method", "VARCHAR(30) NOT NULL DEFAULT 'Cash'");
+        addColumnIfMissing("sales", "card_number", "VARCHAR(20) NULL");
+        addColumnIfMissing("sales", "tendered_amount", "DECIMAL(10,2) NOT NULL DEFAULT 0");
+        addColumnIfMissing("sales", "change_amount", "DECIMAL(10,2) NOT NULL DEFAULT 0");
         addColumnIfMissing("medicines", "medicine_category", "ENUM('Prescribed', 'Over the Counter') NOT NULL DEFAULT 'Over the Counter'");
     }
 
@@ -291,21 +295,38 @@ public class PIMSApplication {
                 if (customerChoice != JOptionPane.OK_OPTION || customerField.getText().trim().isEmpty()) return;
                 String customerName = customerField.getText().trim();
                 double saleTotal = subtotal + taxTotal;
-                JTextField cashField = new JTextField();
-                int cashChoice = JOptionPane.showConfirmDialog(frame, cashField, "Enter cash received for R" + String.format("%.2f", saleTotal), JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
-                if (cashChoice != JOptionPane.OK_OPTION) return;
-                double cashReceived = Double.parseDouble(cashField.getText().trim());
-                if (cashReceived < saleTotal) {
-                    JOptionPane.showMessageDialog(frame, "The amount received is less than the sale total");
-                    return;
+                String[] paymentOptions = {"Cash", "Card"};
+                String paymentMethod = (String) JOptionPane.showInputDialog(frame, "Select payment method", "Payment", JOptionPane.PLAIN_MESSAGE, null, paymentOptions, paymentOptions[0]);
+                if (paymentMethod == null) return;
+                String cardNumber = null;
+                double tendered = saleTotal;
+                double change = 0;
+                if (paymentMethod.equals("Cash")) {
+                    JTextField cashField = new JTextField();
+                    int cashChoice = JOptionPane.showConfirmDialog(frame, cashField, "Enter cash received for R" + String.format("%.2f", saleTotal), JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
+                    if (cashChoice != JOptionPane.OK_OPTION) return;
+                    tendered = Double.parseDouble(cashField.getText().trim());
+                    if (tendered < saleTotal) {
+                        JOptionPane.showMessageDialog(frame, "The amount received is less than the sale total");
+                        return;
+                    }
+                    change = tendered - saleTotal;
+                } else {
+                    String[] cardTypes = {"Visa", "Mastercard"};
+                    String cardType = (String) JOptionPane.showInputDialog(frame, "Select card type", "Card payment", JOptionPane.PLAIN_MESSAGE, null, cardTypes, cardTypes[0]);
+                    if (cardType == null) return;
+                    cardNumber = cardType.equals("Visa") ? "xxxxxxxxxxxx3457" : "xxxxxxxxxxxx7890";
                 }
-                double change = cashReceived - saleTotal;
                 connection.setAutoCommit(false);
-                PreparedStatement sale = connection.prepareStatement("INSERT INTO sales(total_amount, user_id, staff_name, customer_name) VALUES (?, ?, ?, ?)", Statement.RETURN_GENERATED_KEYS);
+                PreparedStatement sale = connection.prepareStatement("INSERT INTO sales(total_amount, user_id, staff_name, customer_name, payment_method, card_number, tendered_amount, change_amount) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", Statement.RETURN_GENERATED_KEYS);
                 sale.setDouble(1, saleTotal);
                 sale.setInt(2, loggedInUserId);
                 sale.setString(3, loggedInName);
                 sale.setString(4, customerName);
+                sale.setString(5, paymentMethod);
+                sale.setString(6, cardNumber);
+                sale.setDouble(7, tendered);
+                sale.setDouble(8, change);
                 sale.executeUpdate();
                 ResultSet keys = sale.getGeneratedKeys();
                 keys.next();
@@ -327,7 +348,7 @@ public class PIMSApplication {
                     stock.executeUpdate();
                 }
                 connection.commit();
-                showBill(saleId, customerName, cashReceived, change);
+                showBill(saleId, customerName, paymentMethod, cardNumber, tendered, change);
                 clearCart();
                 connection.setAutoCommit(true);
             } catch (SQLException error) {
@@ -338,9 +359,10 @@ public class PIMSApplication {
             }
         }
 
-        private void showBill(int saleId, String customerName, double cashReceived, double change) {
+        private void showBill(int saleId, String customerName, String paymentMethod, String cardNumber, double tendered, double change) {
             String saleTime = new SimpleDateFormat("dd MMM yyyy, hh:mm a").format(new java.util.Date());
-            String billText = "========================================\n          HEALTHFIRST PHARMACY\n       12 Main Street, Johannesburg\n       Tel: 011 555 0100 | VAT registered\n========================================\nCustomer: " + customerName + "\nServed by: " + loggedInName + "\nSale number: " + saleId + "\nDate: " + saleTime + "\n----------------------------------------\nItems purchased\n----------------------------------------\n" + cartText() + "----------------------------------------\nSubtotal: R" + String.format("%.2f", subtotal) + "\nTax: R" + String.format("%.2f", taxTotal) + "\nTOTAL: R" + String.format("%.2f", subtotal + taxTotal) + "\nCash received: R" + String.format("%.2f", cashReceived) + "\nChange: R" + String.format("%.2f", change) + "\n========================================\nThank you for shopping with HealthFirst.";
+            String cardLine = cardNumber == null ? "" : "\nCard number: " + cardNumber;
+            String billText = "========================================\n          HEALTHFIRST PHARMACY\n       12 Main Street, Johannesburg\n       Tel: 011 555 0100 | VAT registered\n========================================\nCustomer: " + customerName + "\nServed by: " + loggedInName + "\nSale number: " + saleId + "\nDate: " + saleTime + "\n----------------------------------------\nItems purchased\n----------------------------------------\n" + cartText() + "----------------------------------------\nSubtotal: R" + String.format("%.2f", subtotal) + "\nTax: R" + String.format("%.2f", taxTotal) + "\nTotal: R" + String.format("%.2f", subtotal + taxTotal) + "\nPayment method: " + paymentMethod + cardLine + "\nTendered: R" + String.format("%.2f", tendered) + "\nCash change: R" + String.format("%.2f", change) + "\n========================================\nThank you for shopping with HealthFirst.";
             JTextArea bill = new JTextArea(billText, 15, 35);
             bill.setEditable(false);
             JButton save = new JButton("Save to history");
@@ -403,7 +425,7 @@ public class PIMSApplication {
     private class SalesHistoryPanel extends JPanel {
         SalesHistoryPanel(boolean showAllSales) {
             setLayout(new BorderLayout());
-            JTable table = makeTable(new String[]{"Sale number", "Time", "Customer", "Products sold", "Total", "Staff"});
+            JTable table = makeTable(new String[]{"Sale number", "Time", "Customer", "Products sold", "Total", "Payment", "Staff"});
             JButton refresh = new JButton("Refresh history");
             JButton deleteLastFive = new JButton("Delete last 5 sales");
             add(refresh, BorderLayout.NORTH);
@@ -450,14 +472,14 @@ public class PIMSApplication {
         model.setRowCount(0);
         try {
             connect();
-            String sql = "SELECT s.sale_id, s.sale_date, s.customer_name, GROUP_CONCAT(CONCAT(m.name, ' (', m.medicine_type, ') x ', si.quantity_sold) SEPARATOR ', '), s.total_amount, s.staff_name FROM sales s JOIN sale_items si ON s.sale_id = si.sale_id JOIN medicines m ON si.medicine_id = m.medicine_id";
+            String sql = "SELECT s.sale_id, s.sale_date, s.customer_name, GROUP_CONCAT(CONCAT(m.name, ' (', m.medicine_type, ') x ', si.quantity_sold) SEPARATOR ', '), s.total_amount, s.payment_method, s.staff_name FROM sales s JOIN sale_items si ON s.sale_id = si.sale_id JOIN medicines m ON si.medicine_id = m.medicine_id";
             if (!showAllSales) sql += " WHERE s.user_id = ?";
-            sql += " GROUP BY s.sale_id, s.sale_date, s.customer_name, s.total_amount, s.staff_name ORDER BY s.sale_date DESC";
+            sql += " GROUP BY s.sale_id, s.sale_date, s.customer_name, s.total_amount, s.payment_method, s.staff_name ORDER BY s.sale_date DESC";
             PreparedStatement statement = connection.prepareStatement(sql);
             if (!showAllSales) statement.setInt(1, loggedInUserId);
             ResultSet result = statement.executeQuery();
             SimpleDateFormat historyFormat = new SimpleDateFormat("dd MMM yyyy, hh:mm a");
-            while (result.next()) model.addRow(new Object[]{result.getInt(1), historyFormat.format(result.getTimestamp(2)), result.getString(3), result.getString(4), result.getDouble(5), result.getString(6)});
+            while (result.next()) model.addRow(new Object[]{result.getInt(1), historyFormat.format(result.getTimestamp(2)), result.getString(3), result.getString(4), result.getDouble(5), result.getString(6), result.getString(7)});
         } catch (SQLException error) { showDatabaseError(error); }
     }
 

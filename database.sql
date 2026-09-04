@@ -40,6 +40,10 @@ CREATE TABLE sales (
     user_id INT NOT NULL,
     staff_name VARCHAR(100) NOT NULL,
     customer_name VARCHAR(150) NOT NULL,
+    payment_method VARCHAR(30) NOT NULL DEFAULT 'Cash',
+    card_number VARCHAR(20),
+    tendered_amount DECIMAL(10,2) NOT NULL DEFAULT 0,
+    change_amount DECIMAL(10,2) NOT NULL DEFAULT 0,
     FOREIGN KEY (user_id) REFERENCES users(user_id)
 );
 
