@@ -2,6 +2,7 @@ import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
 import java.awt.*;
 import java.sql.*;
+import java.text.SimpleDateFormat;
 import java.time.LocalDate;
 
 public class PIMSApplication {
@@ -326,7 +327,8 @@ public class PIMSApplication {
         }
 
         private void showBill(int saleId, String customerName) {
-            String billText = "HEALTHFIRST PHARMACY\n12 Main Street, Johannesburg\nTel: 011 555 0100 | VAT registered\n----------------------------------------\nCustomer: " + customerName + "\nServed by: " + loggedInName + "\nSale number: " + saleId + "\nDate: " + new Timestamp(System.currentTimeMillis()) + "\n----------------------------------------\n" + cartText() + "----------------------------------------\nSubtotal: R" + String.format("%.2f", subtotal) + "\nTax: R" + String.format("%.2f", taxTotal) + "\nTOTAL: R" + String.format("%.2f", subtotal + taxTotal) + "\n\nThank you for shopping with HealthFirst.";
+            String saleTime = new SimpleDateFormat("dd MMM yyyy, hh:mm a").format(new java.util.Date());
+            String billText = "========================================\n          HEALTHFIRST PHARMACY\n       12 Main Street, Johannesburg\n       Tel: 011 555 0100 | VAT registered\n========================================\nCustomer: " + customerName + "\nServed by: " + loggedInName + "\nSale number: " + saleId + "\nDate: " + saleTime + "\n----------------------------------------\nItems purchased\n----------------------------------------\n" + cartText() + "----------------------------------------\nSubtotal: R" + String.format("%.2f", subtotal) + "\nTax: R" + String.format("%.2f", taxTotal) + "\nTOTAL: R" + String.format("%.2f", subtotal + taxTotal) + "\n========================================\nThank you for shopping with HealthFirst.";
             JTextArea bill = new JTextArea(billText, 15, 35);
             bill.setEditable(false);
             JButton save = new JButton("Save to history");
@@ -391,10 +393,43 @@ public class PIMSApplication {
             setLayout(new BorderLayout());
             JTable table = makeTable(new String[]{"Sale number", "Time", "Customer", "Products sold", "Total", "Staff"});
             JButton refresh = new JButton("Refresh history");
+            JButton deleteLastFive = new JButton("Delete last 5 sales");
             add(refresh, BorderLayout.NORTH);
+            if (showAllSales) add(deleteLastFive, BorderLayout.SOUTH);
             add(new JScrollPane(table), BorderLayout.CENTER);
             refresh.addActionListener(e -> loadSalesHistory(table, showAllSales));
+            deleteLastFive.addActionListener(e -> deleteLastFiveSales(table));
             loadSalesHistory(table, showAllSales);
+        }
+    }
+
+    private void deleteLastFiveSales(JTable table) {
+        int answer = JOptionPane.showConfirmDialog(frame, "Delete the five most recent sales?", "Confirm deletion", JOptionPane.YES_NO_OPTION);
+        if (answer != JOptionPane.YES_OPTION) return;
+        try {
+            connect();
+            connection.setAutoCommit(false);
+            Statement statement = connection.createStatement();
+            ResultSet sales = statement.executeQuery("SELECT sale_id FROM sales ORDER BY sale_date DESC, sale_id DESC LIMIT 5");
+            java.util.List<Integer> saleIds = new java.util.ArrayList<>();
+            while (sales.next()) saleIds.add(sales.getInt(1));
+            PreparedStatement deleteItems = connection.prepareStatement("DELETE FROM sale_items WHERE sale_id = ?");
+            PreparedStatement deleteSales = connection.prepareStatement("DELETE FROM sales WHERE sale_id = ?");
+            for (Integer saleId : saleIds) {
+                deleteItems.setInt(1, saleId);
+                deleteItems.addBatch();
+                deleteSales.setInt(1, saleId);
+                deleteSales.addBatch();
+            }
+            deleteItems.executeBatch();
+            deleteSales.executeBatch();
+            connection.commit();
+            connection.setAutoCommit(true);
+            loadSalesHistory(table, true);
+            JOptionPane.showMessageDialog(frame, saleIds.size() + " sale(s) deleted");
+        } catch (SQLException error) {
+            try { connection.rollback(); } catch (SQLException ignored) { }
+            showDatabaseError(error);
         }
     }
 
@@ -409,7 +444,8 @@ public class PIMSApplication {
             PreparedStatement statement = connection.prepareStatement(sql);
             if (!showAllSales) statement.setInt(1, loggedInUserId);
             ResultSet result = statement.executeQuery();
-            while (result.next()) model.addRow(new Object[]{result.getInt(1), result.getTimestamp(2), result.getString(3), result.getString(4), result.getDouble(5), result.getString(6)});
+            SimpleDateFormat historyFormat = new SimpleDateFormat("dd MMM yyyy, hh:mm a");
+            while (result.next()) model.addRow(new Object[]{result.getInt(1), historyFormat.format(result.getTimestamp(2)), result.getString(3), result.getString(4), result.getDouble(5), result.getString(6)});
         } catch (SQLException error) { showDatabaseError(error); }
     }
 
