@@ -98,11 +98,6 @@ public class PIMSApplication {
         formConstraints.gridy = 6;
         formConstraints.insets = new Insets(8, 0, 12, 0);
         panel.add(login, formConstraints);
-        formConstraints.gridy = 7;
-        formConstraints.insets = new Insets(12, 0, 0, 0);
-        JLabel help = new JLabel("Admin: admin / admin123    Cashier: cashier / cash123");
-        help.setForeground(new Color(90, 105, 102));
-        panel.add(help, formConstraints);
         frame.add(brandPanel, BorderLayout.WEST);
         frame.add(panel, BorderLayout.CENTER);
         login.addActionListener(e -> login(username.getText(), new String(password.getPassword())));
