@@ -1,6 +1,7 @@
 import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
 import java.awt.*;
+import java.io.FileWriter;
 import java.sql.*;
 import java.text.SimpleDateFormat;
 import java.time.LocalDate;
@@ -626,9 +627,100 @@ public class PIMSApplication {
     private void editCashier(JTable table) { int row = table.getSelectedRow(); if (row < 0 || !table.getValueAt(row, 3).toString().equals("Cashier")) return; JTextField username = new JTextField(table.getValueAt(row, 1).toString()), password = new JTextField(), fullName = new JTextField(table.getValueAt(row, 2).toString()); JPanel panel = new JPanel(new GridLayout(3, 2)); panel.add(new JLabel("Username")); panel.add(username); panel.add(new JLabel("New password")); panel.add(password); panel.add(new JLabel("Full name")); panel.add(fullName); if (JOptionPane.showConfirmDialog(frame, panel, "Edit cashier", JOptionPane.OK_CANCEL_OPTION) == JOptionPane.OK_OPTION) { try { connect(); PreparedStatement statement = connection.prepareStatement("UPDATE users SET username = ?, password = ?, full_name = ? WHERE user_id = ? AND role = 'Cashier'"); statement.setString(1, username.getText()); statement.setString(2, password.getText().isEmpty() ? "cash123" : password.getText()); statement.setString(3, fullName.getText()); statement.setInt(4, (Integer) table.getValueAt(row, 0)); statement.executeUpdate(); loadUsers(table); } catch (SQLException error) { showDatabaseError(error); } } }
 
     private class ReportPanel extends JPanel {
-        ReportPanel() { setLayout(new GridLayout(2, 2, 8, 8)); add(reportButton("Sales report", "SELECT DATE(sale_date), COUNT(*), SUM(total_amount) FROM sales GROUP BY DATE(sale_date)")); add(reportButton("Item wise report", "SELECT m.name, SUM(i.quantity_sold) FROM sale_items i JOIN medicines m ON i.medicine_id = m.medicine_id GROUP BY m.name")); add(reportButton("Low stock report", "SELECT name, quantity_in_stock, reorder_level FROM medicines WHERE quantity_in_stock <= reorder_level")); add(reportButton("Expiry report", "SELECT name, expiry_date FROM medicines WHERE expiry_date BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 1 MONTH)")); }
-        private JButton reportButton(String title, String sql) { JButton button = new JButton(title); button.addActionListener(e -> showReport(title, sql)); return button; }
-    }
+        private JComboBox<String> reportType = new JComboBox<>(new String[]{"Sales report", "Item wise report", "Low stock report", "Expiry report"});
+        private JTextField fromDate = new JTextField("2026-01-01");
+        private JTextField toDate = new JTextField("2026-12-31");
+        private JLabel summary = new JLabel("Choose a report and select Generate report");
+        private JTable table;
 
-    private void showReport(String title, String sql) { try { connect(); ResultSet result = connection.createStatement().executeQuery(sql); StringBuilder text = new StringBuilder(title + "\n\n"); ResultSetMetaData metadata = result.getMetaData(); while (result.next()) { for (int i = 1; i <= metadata.getColumnCount(); i++) text.append(result.getString(i)).append("    "); text.append("\n"); } JTextArea area = new JTextArea(text.toString()); area.setEditable(false); JOptionPane.showMessageDialog(frame, new JScrollPane(area), title, JOptionPane.INFORMATION_MESSAGE); } catch (SQLException error) { showDatabaseError(error); } }
+        ReportPanel() {
+            setLayout(new BorderLayout(8, 8));
+            JPanel filters = new JPanel(new GridLayout(2, 5, 8, 4));
+            filters.setBorder(BorderFactory.createEmptyBorder(8, 8, 4, 8));
+            filters.add(new JLabel("Report type"));
+            filters.add(new JLabel("From date yyyy mm dd"));
+            filters.add(new JLabel("To date yyyy mm dd"));
+            filters.add(new JLabel());
+            filters.add(new JLabel());
+            filters.add(reportType);
+            filters.add(fromDate);
+            filters.add(toDate);
+            JButton generate = new JButton("Generate report");
+            JButton export = new JButton("Export report");
+            filters.add(generate);
+            filters.add(export);
+            add(filters, BorderLayout.NORTH);
+            summary.setBorder(BorderFactory.createEmptyBorder(4, 12, 4, 12));
+            add(summary, BorderLayout.SOUTH);
+            table = makeTable(new String[]{"Report results"});
+            add(new JScrollPane(table), BorderLayout.CENTER);
+            generate.addActionListener(e -> generateReport());
+            export.addActionListener(e -> exportReport());
+            generateReport();
+        }
+
+        private void generateReport() {
+            String selected = reportType.getSelectedItem().toString();
+            String sql;
+            if (selected.equals("Sales report")) {
+                sql = "SELECT DATE(s.sale_date), COUNT(*), SUM(s.total_amount), AVG(s.total_amount) FROM sales s WHERE DATE(s.sale_date) BETWEEN ? AND ? GROUP BY DATE(s.sale_date) ORDER BY DATE(s.sale_date) DESC";
+            } else if (selected.equals("Item wise report")) {
+                sql = "SELECT m.name, m.medicine_type, m.medicine_category, SUM(i.quantity_sold), SUM(i.quantity_sold * i.price_at_sale) FROM sale_items i JOIN medicines m ON i.medicine_id = m.medicine_id JOIN sales s ON i.sale_id = s.sale_id WHERE DATE(s.sale_date) BETWEEN ? AND ? GROUP BY m.medicine_id, m.name, m.medicine_type, m.medicine_category ORDER BY SUM(i.quantity_sold) DESC";
+            } else if (selected.equals("Low stock report")) {
+                sql = "SELECT medicine_id, name, medicine_category, quantity_in_stock, reorder_level, (reorder_level - quantity_in_stock) FROM medicines WHERE quantity_in_stock <= reorder_level ORDER BY quantity_in_stock ASC";
+            } else {
+                sql = "SELECT medicine_id, name, medicine_category, expiry_date, DATEDIFF(expiry_date, CURDATE()) FROM medicines WHERE expiry_date BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 1 MONTH) ORDER BY expiry_date ASC";
+            }
+            try {
+                connect();
+                PreparedStatement statement = connection.prepareStatement(sql);
+                if (selected.equals("Low stock report") || selected.equals("Expiry report")) {
+                } else {
+                    statement.setDate(1, Date.valueOf(fromDate.getText().trim()));
+                    statement.setDate(2, Date.valueOf(toDate.getText().trim()));
+                }
+                ResultSet result = statement.executeQuery();
+                ResultSetMetaData metadata = result.getMetaData();
+                String[] columns = new String[metadata.getColumnCount()];
+                for (int i = 0; i < columns.length; i++) columns[i] = metadata.getColumnLabel(i + 1);
+                table.setModel(new DefaultTableModel(columns, 0));
+                DefaultTableModel model = (DefaultTableModel) table.getModel();
+                int rows = 0;
+                double total = 0;
+                while (result.next()) {
+                    Object[] values = new Object[columns.length];
+                    for (int i = 0; i < columns.length; i++) values[i] = result.getObject(i + 1);
+                    model.addRow(values);
+                    rows++;
+                    if (selected.equals("Sales report")) total += result.getDouble(3);
+                }
+                summary.setText(selected + " | Records: " + rows + (selected.equals("Sales report") ? String.format(" | Sales total: R%.2f", total) : ""));
+            } catch (Exception error) {
+                JOptionPane.showMessageDialog(frame, "Could not generate report: " + error.getMessage());
+            }
+        }
+
+        private void exportReport() {
+            JFileChooser chooser = new JFileChooser();
+            chooser.setSelectedFile(new java.io.File("healthfirst_report.csv"));
+            if (chooser.showSaveDialog(frame) != JFileChooser.APPROVE_OPTION) return;
+            try (FileWriter writer = new FileWriter(chooser.getSelectedFile())) {
+                for (int column = 0; column < table.getColumnCount(); column++) {
+                    if (column > 0) writer.write(",");
+                    writer.write(table.getColumnName(column));
+                }
+                writer.write("\n");
+                for (int row = 0; row < table.getRowCount(); row++) {
+                    for (int column = 0; column < table.getColumnCount(); column++) {
+                        if (column > 0) writer.write(",");
+                        writer.write(String.valueOf(table.getValueAt(row, column)));
+                    }
+                    writer.write("\n");
+                }
+                JOptionPane.showMessageDialog(frame, "Report exported successfully");
+            } catch (Exception error) {
+                JOptionPane.showMessageDialog(frame, "Could not export report: " + error.getMessage());
+            }
+        }
+    }
 }
